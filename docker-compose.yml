@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: farmacia-viva-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: farmacia_viva
+      POSTGRES_USER: farmacia
+      POSTGRES_PASSWORD: farmacia
+    ports:
+      - "5432:5432"
+    volumes:
+      - farmacia_viva_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U farmacia -d farmacia_viva"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  farmacia_viva_pgdata:

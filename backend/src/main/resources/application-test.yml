@@ -1,0 +1,15 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+
+logging:
+  level:
+    br.org.cremic.farmaciaviva: INFO
+
+app:
+  cors:
+    allowed-origins:
+      - http://localhost:5173

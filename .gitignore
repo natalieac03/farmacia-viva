@@ -1,0 +1,33 @@
+# Artefatos de build e dependencias
+backend/target/
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+
+# Arquivos de execucao local e logs
+.run/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Variaveis de ambiente e credenciais locais
+**/.env
+**/.env.*
+!**/.env.example
+
+# IDEs e editores
+**/.idea/
+**/.vscode/
+**/.settings/
+**/*.iws
+**/*.iml
+**/*.ipr
+**/.classpath
+**/.project
+**/.factorypath
+
+# Arquivos do sistema operacional
+**/.DS_Store
+**/Thumbs.db
