@@ -207,6 +207,128 @@ Resposta esperada:
 }
 ```
 
+## Deploy
+
+A produção roda no Railway (projeto `farmacia-viva`, ambiente `production`). Os serviços são construídos pelo builder Railpack e fazem deploy automático a cada push na branch `main`. Build command, start command e root directory ficam nas configurações de cada serviço no painel do Railway, não em arquivos do repositório.
+
+### Arquitetura no Railway
+
+Três serviços no mesmo projeto:
+
+| Serviço | Root directory | URL |
+|---|---|---|
+| `Postgres` | — (banco gerenciado, com volume) | sem domínio público; o backend acessa pela rede privada (`postgres.railway.internal`) |
+| `backend` | `backend` | https://backend-production-2980.up.railway.app |
+| `front` | `frontend` | https://farmacia-viva.up.railway.app |
+
+O serviço do frontend se chama `front`, não `frontend`. É esse o nome que o CLI aceita: `railway variables --service front`.
+
+### Variáveis do backend
+
+| Variável | Valor | Por quê |
+|---|---|---|
+| `SPRING_PROFILES_ACTIVE` | `railway` | Ativa o `application-railway.yml`, que lê porta, banco e CORS do ambiente. |
+| `PGHOST` | `${{Postgres.PGHOST}}` | Referência ao serviço Postgres (ver abaixo). |
+| `PGPORT` | `${{Postgres.PGPORT}}` | Idem. |
+| `PGDATABASE` | `${{Postgres.PGDATABASE}}` | Idem. |
+| `PGUSER` | `${{Postgres.PGUSER}}` | Idem. |
+| `PGPASSWORD` | `${{Postgres.PGPASSWORD}}` | Idem. |
+| `CORS_ORIGINS` | `https://farmacia-viva.up.railway.app` | Origem que o navegador pode usar para chamar a API. |
+
+**Por que não usar a `DATABASE_URL` pronta.** O Railway entrega a `DATABASE_URL` no formato `postgresql://usuario:senha@host:porta/banco`, mas o driver JDBC do Spring exige `jdbc:postgresql://host:porta/banco`, com usuário e senha separados. Por isso o `application-railway.yml` monta a URL a partir das variáveis separadas:
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://${PGHOST}:${PGPORT}/${PGDATABASE}
+    username: ${PGUSER}
+    password: ${PGPASSWORD}
+```
+
+As variáveis são referências (`${{Postgres.PGHOST}}` etc.), não valores copiados: as credenciais continuam tendo um único dono, o serviço Postgres. Se elas mudarem lá, basta redeployar o backend.
+
+**`CORS_ORIGINS`**: a URL do frontend com `https` e sem barra no final, exatamente como o navegador envia no header `Origin`. Uma origem com `http://` no lugar de `https://` é recusada. Sem a variável, o profile cai no padrão `http://localhost:5173` e toda chamada do frontend publicado recebe `403 Invalid CORS request`.
+
+`PORT` não precisa ser setada: o Railway injeta a variável e o `application-railway.yml` usa `server.port: ${PORT:8080}`.
+
+### Variável do frontend
+
+| Variável | Valor |
+|---|---|
+| `VITE_API_BASE_URL` | `https://backend-production-2980.up.railway.app` |
+
+Duas pegadinhas que já aconteceram:
+
+1. **O nome é `VITE_API_BASE_URL`**, lido em `frontend/src/env.ts`. Já setamos `VITE_API_URL` por engano e isso custou uma sessão de debug. Uma variável com nome errado não gera erro nenhum: o Vite ignora a variável, e o build embute o que estiver em `VITE_API_BASE_URL`. Naquele caso, era `http://localhost:8080`.
+2. **O valor é a raiz do backend, sem `/api/v1`.** Cada chamada já traz o prefixo (`/api/v1/plantas` em `services/plantasApi.ts`, `/api/v1/health` em `lib/health.ts`), e o `lib/api.ts` só concatena base + path. Com `/api/v1` no valor, as chamadas viram `/api/v1/api/v1/plantas`. Essa rota não existe e não está entre as liberadas no `SecurityConfig`, então o Spring Security responde **403 com corpo vazio**, e não 404, antes de a requisição chegar ao controller. A tela mostra "HTTP 403".
+
+### Variáveis `VITE_*` são embutidas no BUILD
+
+O Vite substitui `import.meta.env.VITE_*` pelo valor literal no momento do `vite build`. O bundle publicado é um arquivo estático e não lê variável nenhuma em tempo de execução. Portanto:
+
+- **Mudar a variável não afeta o que já está publicado.** É preciso que o frontend seja construído de novo (redeploy).
+- **Confira se o redeploy aconteceu mesmo** com `railway deployment list --service front`. Em 15/09/2026, setar uma variável pelo CLI disparou deploy, mas removê-la (`railway variable delete`) não disparou; foi preciso rodar `railway redeploy --service front`.
+- **O hash do arquivo em `/assets` só muda se o conteúdo mudar.** O nome (`index-<hash>.js`) é derivado do conteúdo gerado. Um commit vazio com a variável inalterada gera exatamente o mesmo bundle, com o mesmo hash. Hash igual não indica cache, indica que nada mudou de fato no que foi compilado. Pelo mesmo motivo, remover uma variável que nenhum código lê também mantém o hash.
+
+### Build e start
+
+| Serviço | Build command | Start command |
+|---|---|---|
+| `backend` | `./mvnw clean package -DskipTests` | `java -jar target/*.jar` |
+| `front` | `npm install --no-audit --no-fund && npm run build` | `npx serve -s dist -l $PORT` |
+
+O `-s` do `serve` devolve o `index.html` para qualquer rota desconhecida, o que permite abrir diretamente rotas do React Router como `/repositorio`.
+
+**Por que `npm install` e não `npm ci`.** Ao detectar um projeto Vite (dependência `vite`, script `build` e `vite.config.ts`), o Railpack monta `/app/node_modules/.vite` como volume de cache no passo de build. O `npm ci` começa apagando o `node_modules` inteiro e não consegue remover o ponto de montagem:
+
+```
+npm error code EBUSY
+npm error syscall rmdir
+npm error path /app/node_modules/.vite
+npm error EBUSY: resource busy or locked, rmdir '/app/node_modules/.vite'
+```
+
+O `npm install` não apaga o diretório inteiro, então não colide com o volume.
+
+O `vite.config.ts` define `cacheDir: ".vite-cache"`, mas isso **não** libera o uso de `npm ci`. O volume é criado pelo Railpack a partir da detecção do projeto, independentemente da configuração do Vite (`isVitePackage` e `addCachesToBuildStep` em `core/providers/node` do [railpack](https://github.com/railwayapp/railpack)). Além disso, o `vite build` não usa o `cacheDir`; quem usa é o servidor de desenvolvimento (`npm run dev`).
+
+### Diagnóstico rápido
+
+Comandos que fecharam o último problema de deploy e servem para qualquer regressão:
+
+```bash
+FRONT=https://farmacia-viva.up.railway.app
+BACK=https://backend-production-2980.up.railway.app
+
+# 1. Endpoint com a origem do frontend: olhe o status, o header access-control-allow-origin e o corpo
+curl -i -H "Origin: $FRONT" $BACK/api/v1/plantas
+
+# 2. Hash do bundle publicado (o hash pode conter - e _)
+BUNDLE=$(curl -s $FRONT/ | grep -o 'index-[A-Za-z0-9_-]*\.js')
+echo $BUNDLE
+
+# 3. O que ficou embutido no bundle
+curl -s $FRONT/assets/$BUNDLE | grep -o 'https://[a-z0-9.-]*railway.app[^"]*' | sort -u
+curl -s $FRONT/assets/$BUNDLE | grep -o 'localhost:[0-9]*' | sort -u
+
+# 4. Variáveis e deploys do frontend
+railway variables --service front --kv
+railway deployment list --service front
+```
+
+Cuidado: `railway variables --service backend --kv` imprime a senha do banco em texto puro.
+
+| O que aparece | Significado | Onde corrigir |
+|---|---|---|
+| `200` com `access-control-allow-origin` igual à URL do front | Backend e CORS corretos; se a tela ainda falha, olhe o bundle | — |
+| `403` com corpo `Invalid CORS request` e sem `access-control-allow-origin` | Origem recusada pelo CORS | `CORS_ORIGINS` no backend (ausente, `http` em vez de `https`, domínio errado) |
+| `403` com corpo vazio | Rota não liberada no `SecurityConfig` **ou rota inexistente**: o Security barra antes de chegar ao 404 | `SecurityConfig`, ou o path da chamada |
+| `404` com JSON (`ApiError`) | Rota liberada, mas o endpoint ou o recurso não existe | Path da chamada / módulo no backend |
+| `localhost` no bundle | `VITE_API_BASE_URL` errada no build, ou bundle antigo | Variável do `front` + redeploy |
+| URL `railway.app` terminando em `/api/v1` no bundle | Prefixo duplicado no valor | Tirar `/api/v1` de `VITE_API_BASE_URL` + redeploy |
+
+Na tela, "Não foi possível conectar ao servidor" vem do `lib/api.ts` quando o `fetch` falha sem resposta: URL errada no bundle (por exemplo `localhost`), backend fora do ar ou CORS bloqueado pelo navegador. Quando há resposta HTTP com erro, a tela mostra o status, como em "HTTP 403".
+
 ## Documentação da API
 
 A documentação detalhada dos endpoints fica em `docs/api/`. Módulos documentados: [Unidades de Medida](docs/api/unidades-medida.md) (`/api/v1/unidades-medida`), com criação, listagem paginada com filtro por situação, busca por id, atualização, arquivamento lógico e reativação; [Repositório de Plantas](docs/api/plantas.md) (`/api/v1/plantas`), com ficha completa, busca por nome científico ou popular, similares recíprocos, referências e arquivamento lógico. Enquanto a autenticação JWT não é implementada, os endpoints de unidades de medida estão temporariamente liberados no `SecurityConfig`; o health continua público e todas as demais rotas exigem autenticação.
