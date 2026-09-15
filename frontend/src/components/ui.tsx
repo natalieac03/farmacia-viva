@@ -1,0 +1,9 @@
+import { cn } from "@/lib/utils";
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+export function Card({children,className=""}:{children:ReactNode;className?:string}){return <section className={cn("rounded-2xl border border-stone-200 bg-white p-5 shadow-sm",className)}>{children}</section>}
+export function Badge({children,tone="neutral"}:{children:ReactNode;tone?:"neutral"|"good"|"warn"|"danger"|"info"}){const c={neutral:"bg-stone-100 text-stone-700",good:"bg-emerald-100 text-emerald-800",warn:"bg-amber-100 text-amber-900",danger:"bg-red-100 text-red-800",info:"bg-sky-100 text-sky-800"}[tone];return <span className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-semibold",c)}>{children}</span>}
+export function Button({className="",...p}:ButtonHTMLAttributes<HTMLButtonElement>){return <button className={cn("inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-800 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-900 disabled:opacity-50",className)} {...p}/>} 
+export function Input(p:InputHTMLAttributes<HTMLInputElement>){return <input className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-700 focus:ring-2 focus:ring-emerald-100" {...p}/>}
+export function Select(p:SelectHTMLAttributes<HTMLSelectElement>){return <select className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-700" {...p}/>}
+export function Textarea(p:TextareaHTMLAttributes<HTMLTextAreaElement>){return <textarea className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-700" {...p}/>}
+export function Field({label,children}:{label:string;children:ReactNode}){return <label className="grid gap-1.5 text-sm font-medium text-slate-700"><span>{label}</span>{children}</label>}

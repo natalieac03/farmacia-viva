@@ -22,6 +22,15 @@
         <mapstruct.version>1.6.3</mapstruct.version>
         <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
         <jjwt.version>0.12.6</jjwt.version>
+        <!--
+            NAO REMOVER. O docker-java-core embutido (shaded) no testcontainers.jar usa
+            RemoteApiVersion.VERSION_1_32 como padrao em DefaultDockerClientConfig, e o
+            Docker Engine 29 exige API >= 1.40 ("client version 1.32 is too old").
+            Essa classe le a propriedade de SISTEMA "api.version", repassada ao JVM dos
+            ITs pelo failsafe abaixo; DOCKER_API_VERSION e ~/.testcontainers.properties
+            nao a alimentam, e por isso nao servem de substituto.
+        -->
+        <docker.api.version>1.44</docker.api.version>
     </properties>
 
     <dependencies>
@@ -152,6 +161,50 @@
                     </annotationProcessorPaths>
                 </configuration>
             </plugin>
+            <!--
+                Surefire roda apenas os testes unitarios. Os padroes herdados ja
+                excluem *IT, mas a exclusao fica explicita para que a separacao
+                entre teste unitario e teste de integracao seja intencional e nao
+                dependa de convencao implicita.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/*IT.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!--
+                Failsafe roda os testes de integracao (*IT) nas fases
+                integration-test e verify. Sem esta declaracao o plugin existe
+                apenas no pluginManagement herdado do spring-boot-starter-parent,
+                o que fixa a versao mas nao vincula nenhuma execucao: as classes
+                *IT ficavam no projeto sem nunca serem executadas.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*IT.java</include>
+                    </includes>
+                    <systemPropertyVariables>
+                        <api.version>${docker.api.version}</api.version>
+                    </systemPropertyVariables>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

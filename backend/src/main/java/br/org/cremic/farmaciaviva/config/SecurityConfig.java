@@ -37,6 +37,7 @@ public class SecurityConfig {
                 // (modulo de usuarios). Quando o JWT entrar, esta linha sera removida
                 // e o modulo passara a exigir autenticacao.
                 .requestMatchers("/api/v1/unidades-medida/**").permitAll()
+                .requestMatchers("/api/v1/plantas/**").permitAll()
                 .anyRequest().authenticated());
         return http.build();
     }
